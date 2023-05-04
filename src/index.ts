@@ -1,6 +1,7 @@
 import { Gauge, register } from "prom-client";
 import { createServer } from "http";
 import { QBittorrent } from "@ctrl/qbittorrent";
+import got from "got";
 
 if (process.env.QBIT_URL === undefined) throw new Error("QBIT_URL environment variable not set");
 const listenPort = process.env.LISTEN_PORT ?? 3001;
@@ -47,30 +48,86 @@ const metrics = metricInfo.map(
 		] as const
 );
 
+type Peers = {
+	peers: {
+		[host: string]: {
+			client: string | number | undefined;
+			country: string;
+			dl_speed: number;
+			downloaded: number;
+			up_speed: number;
+			uploaded: number;
+		};
+	};
+};
+
+const labelNames = ["country", "client"] as const;
+const peer_dl_speed = new Gauge({
+	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_dl_speed`,
+	help: "Peer download speed (bytes/s)",
+	labelNames,
+});
+const peer_dl_bytes = new Gauge({
+	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_dl_bytes`,
+	help: "Peer downloaded bytes",
+	labelNames,
+});
+const peer_up_speed = new Gauge({
+	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_up_speed`,
+	help: "Peer upload speed (bytes/s)",
+	labelNames,
+});
+const peer_up_bytes = new Gauge({
+	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_up_bytes`,
+	help: "Peer uploaded bytes",
+	labelNames,
+});
+
 console.log(`Creating http server...`);
 createServer(async (req, res) => {
 	if (req.url === "/metrics") {
 		const torrents = await client.listTorrents();
 
-		metrics.forEach(([key, metric]) => {
-			metric.reset();
-			torrents.forEach((t) => {
-				const value = t[<Exclude<typeof key, "seeding_time">>key];
-				metric.set(
-					{
-						name: t.name,
-						tracker: t.tracker,
-						total_size: t.total_size,
-						added_on: t.added_on * 1000,
-						hash: t.hash,
-						category: t.category,
-						tags: t.tags,
-						state: t.state,
-					},
-					key === "last_activity" ? value * 1000 : value
-				);
-			});
-		});
+		register.resetMetrics();
+
+		await Promise.all(
+			torrents.map(async (torrent) => {
+				if (torrent.num_leechs + torrent.num_seeds > 0) {
+					const { peers } = await got<Peers>(`${process.env.QBIT_URL}/api/v2/sync/torrentPeers?hash=${torrent.hash}`, {
+						responseType: "json",
+						resolveBodyOnly: true,
+						https: { rejectUnauthorized: false },
+					});
+					for (const peer of Object.values(peers)) {
+						const labels: { country: string; client?: string } = {
+							country: peer.country,
+						};
+						if (peer.client && peer.client !== "") labels.client = peer.client?.toString();
+						peer_dl_bytes.inc(labels, peer.downloaded);
+						peer_up_bytes.inc(labels, peer.uploaded);
+						peer_dl_speed.inc(labels, peer.dl_speed);
+						peer_up_speed.inc(labels, peer.up_speed);
+					}
+				}
+				for (const [key, metric] of metrics) {
+					const value = torrent[<Exclude<typeof key, "seeding_time">>key];
+					metric.set(
+						{
+							name: torrent.name,
+							tracker: torrent.tracker,
+							total_size: torrent.total_size,
+							added_on: torrent.added_on * 1000,
+							hash: torrent.hash,
+							category: torrent.category,
+							tags: torrent.tags,
+							state: torrent.state,
+						},
+						key === "last_activity" ? value * 1000 : value
+					);
+				}
+			})
+		);
+
 		// Fetch and process the stats when the /metrics endpoint is called
 		res.setHeader("Content-Type", register.contentType);
 		res.end(await register.metrics());

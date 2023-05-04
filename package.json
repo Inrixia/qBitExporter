@@ -8,6 +8,7 @@
 	},
 	"dependencies": {
 		"@ctrl/qbittorrent": "^6.0.0",
+		"got": "^12.6.0",
 		"prom-client": "^14.2.0"
 	},
 	"devDependencies": {
