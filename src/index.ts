@@ -29,14 +29,14 @@ const metricInfo = [
 	["uploaded", "up_total_bytes", "Uploaded bytes"],
 	["amount_left", "bytes_left", "Bytes left to download"],
 	// Times
-	["last_activity", "last_activity", "Last time a chunk was downloaded/uploaded", (n: number) => n * 1000],
-	["seeding_time", "seeding_time", "Total seeding time", (n: number) => n * 1000],
-	["eta", "eta", "Torrent ETA (seconds)", (n: number) => n * 1000],
+	["last_activity", "last_activity", "Last time a chunk was downloaded/uploaded"],
+	["seeding_time", "seeding_time", "Total seeding time"],
+	["eta", "eta", "Torrent ETA (seconds)"],
 ] as const;
 
 console.log("Creating metrics...");
 const metrics = metricInfo.map(
-	([key, metric, help, cast]) =>
+	([key, metric, help]) =>
 		[
 			key,
 			new Gauge({
@@ -44,7 +44,6 @@ const metrics = metricInfo.map(
 				help,
 				labelNames: ["name", "tracker", "total_size", "added_on", "hash", "category", "tags", "state"] as const,
 			}),
-			cast,
 		] as const
 );
 
@@ -53,7 +52,7 @@ createServer(async (req, res) => {
 	if (req.url === "/metrics") {
 		const torrents = await client.listTorrents();
 
-		metrics.forEach(([key, metric, cast]) => {
+		metrics.forEach(([key, metric]) => {
 			metric.reset();
 			torrents.forEach((t) => {
 				const value = t[<Exclude<typeof key, "seeding_time">>key];
@@ -62,13 +61,13 @@ createServer(async (req, res) => {
 						name: t.name,
 						tracker: t.tracker,
 						total_size: t.total_size,
-						added_on: t.added_on,
+						added_on: t.added_on * 1000,
 						hash: t.hash,
 						category: t.category,
 						tags: t.tags,
 						state: t.state,
 					},
-					cast ? cast(value) : value
+					key === "last_activity" ? value * 1000 : value
 				);
 			});
 		});
