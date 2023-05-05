@@ -12,26 +12,28 @@ const client = new QBittorrent({
 	password: process.env.QBIT_PASS ?? "",
 });
 
+const prefix = process.env.PROMETHEUS_PREFIX ?? "qBit_";
+
 console.log(`Creating metric plex_device_bytes_used...`);
 const metricInfo = [
 	// Speed
-	["dlspeed", "dl_speed_bytes", "Download speed (bytes/s)"],
-	["upspeed", "up_speed_bytes", "Upload speed (bytes/s)"],
+	["dlspeed", "downSpeed", "Download speed (bytes/s)"],
+	["upspeed", "upSpeed", "Upload speed (bytes/s)"],
 	// Seeds/Leeches
-	["num_complete", "seeders_total", "Number of seeds in the swarm"],
-	["num_incomplete", "leechers_total", "Number of leechers in the swarm"],
-	["num_seeds", "seeders_connected", "Number of seeds connected to"],
-	["num_leechs", "leechers_connected", "Number of leechers connected to"],
+	["num_complete", "seeders", "Number of seeds in the swarm"],
+	["num_incomplete", "leechers", "Number of leechers in the swarm"],
+	["num_seeds", "seedersConnected", "Number of seeds connected to"],
+	["num_leechs", "leechersConnected", "Number of leechers connected to"],
 	// General
 	["ratio", "ratio", "Share ratio"],
-	["progress", "percent_complete", "Torrent progress (percentage/100)"],
+	["progress", "progress", "Torrent precent done"],
 	// Bytes
-	["downloaded", "dl_total_bytes", "Downloaded bytes"],
-	["uploaded", "up_total_bytes", "Uploaded bytes"],
-	["amount_left", "bytes_left", "Bytes left to download"],
+	["downloaded", "downloaded", "Downloaded bytes"],
+	["uploaded", "uploaded", "Uploaded bytes"],
+	["amount_left", "bytesLeft", "Bytes left to download"],
 	// Times
-	["last_activity", "last_activity", "Last time a chunk was downloaded/uploaded"],
-	["seeding_time", "seeding_time", "Total seeding time"],
+	["last_activity", "lastActive", "Last time a chunk was downloaded/uploaded"],
+	["seeding_time", "seedtime", "Total seeding time"],
 	["eta", "eta", "Torrent ETA (seconds)"],
 ] as const;
 
@@ -41,9 +43,9 @@ const metrics = metricInfo.map(
 		[
 			key,
 			new Gauge({
-				name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}${metric}`,
+				name: `${prefix}${metric}`,
 				help,
-				labelNames: ["name", "tracker", "total_size", "added_on", "hash", "category", "tags", "state"] as const,
+				labelNames: ["name", "tracker", "totalSize", "addedOn", "hash", "category", "tags", "state"] as const,
 			}),
 		] as const
 );
@@ -72,24 +74,30 @@ type Peers = {
 };
 
 const labelNames = ["country", "client", "ip", "port"] as const;
+const peerPrefix = `peer_`;
 const peer_dl_speed = new Gauge({
-	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_dl_speed`,
+	name: `${prefix}${peerPrefix}downSpeed`,
 	help: "Peer download speed (bytes/s)",
 	labelNames,
 });
 const peer_dl_bytes = new Gauge({
-	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_dl_bytes`,
+	name: `${prefix}${peerPrefix}downloaded`,
 	help: "Peer downloaded bytes",
 	labelNames,
 });
 const peer_up_speed = new Gauge({
-	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_up_speed`,
+	name: `${prefix}${peerPrefix}upSpeed`,
 	help: "Peer upload speed (bytes/s)",
 	labelNames,
 });
 const peer_up_bytes = new Gauge({
-	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_up_bytes`,
+	name: `${prefix}${peerPrefix}uploaded`,
 	help: "Peer uploaded bytes",
+	labelNames,
+});
+const peer_percent_complete = new Gauge({
+	name: `${prefix}${peerPrefix}progress`,
+	help: "Peer precent done",
 	labelNames,
 });
 
@@ -119,6 +127,7 @@ createServer(async (req, res) => {
 						peer_up_bytes.inc(labels, peer.uploaded);
 						peer_dl_speed.inc(labels, peer.dl_speed);
 						peer_up_speed.inc(labels, peer.up_speed);
+						peer_percent_complete.inc(labels, peer.progress);
 					}
 				}
 				for (const [key, metric] of metrics) {
@@ -127,8 +136,8 @@ createServer(async (req, res) => {
 						{
 							name: torrent.name,
 							tracker: torrent.tracker,
-							total_size: torrent.total_size,
-							added_on: torrent.added_on * 1000,
+							totalSize: torrent.total_size,
+							addedOn: torrent.added_on * 1000,
 							hash: torrent.hash,
 							category: torrent.category,
 							tags: torrent.tags,
