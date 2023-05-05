@@ -51,17 +51,27 @@ const metrics = metricInfo.map(
 type Peers = {
 	peers: {
 		[host: string]: {
-			client: string | number | undefined;
+			client: string;
+			connection: string;
 			country: string;
+			country_code: string;
 			dl_speed: number;
 			downloaded: number;
+			files: string;
+			flags: string;
+			flags_desc: string;
+			ip: string;
+			peer_id_client: string;
+			port: number;
+			progress: number;
+			relevance: number;
 			up_speed: number;
 			uploaded: number;
 		};
 	};
 };
 
-const labelNames = ["country", "client"] as const;
+const labelNames = ["country", "client", "ip", "port"] as const;
 const peer_dl_speed = new Gauge({
 	name: `${process.env.PROMETHEUS_PREFIX ?? "qBit_"}peer_dl_speed`,
 	help: "Peer download speed (bytes/s)",
@@ -99,8 +109,10 @@ createServer(async (req, res) => {
 						https: { rejectUnauthorized: false },
 					});
 					for (const peer of Object.values(peers)) {
-						const labels: { country: string; client?: string } = {
+						const labels: { country: string; client?: string; ip: string; port: string } = {
 							country: peer.country,
+							ip: peer.ip.toString(),
+							port: peer.port.toString(),
 						};
 						if (peer.client && peer.client !== "") labels.client = peer.client?.toString();
 						peer_dl_bytes.inc(labels, peer.downloaded);
