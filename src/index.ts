@@ -1,7 +1,6 @@
 import { Gauge, register } from "prom-client";
 import { createServer } from "http";
 import { QBittorrent } from "@ctrl/qbittorrent";
-import got from "got";
 
 if (process.env.QBIT_URL === undefined) throw new Error("QBIT_URL environment variable not set");
 const listenPort = process.env.LISTEN_PORT ?? 3001;
@@ -95,11 +94,6 @@ const peer_up_bytes = new Gauge({
 	help: "Peer uploaded bytes",
 	labelNames,
 });
-const peer_percent_complete = new Gauge({
-	name: `${prefix}${peerPrefix}progress`,
-	help: "Peer precent done",
-	labelNames,
-});
 
 console.log(`Creating http server...`);
 createServer(async (req, res) => {
@@ -111,23 +105,20 @@ createServer(async (req, res) => {
 		await Promise.all(
 			torrents.map(async (torrent) => {
 				if (torrent.num_leechs + torrent.num_seeds > 0) {
-					const { peers } = await got<Peers>(`${process.env.QBIT_URL}/api/v2/sync/torrentPeers?hash=${torrent.hash}`, {
-						responseType: "json",
-						resolveBodyOnly: true,
-						https: { rejectUnauthorized: false },
-					});
+					const { peers } = await client.torrentPeers(torrent.hash);
 					for (const peer of Object.values(peers)) {
-						const labels: { country: string; client?: string; ip: string; port: string } = {
-							country: peer.country,
-							ip: peer.ip.toString(),
-							port: peer.port.toString(),
-						};
+						const labels: { country?: string; client?: string; ip?: string; port?: string } = {};
 						if (peer.client && peer.client !== "") labels.client = peer.client?.toString();
+						if (peer.country && peer.country !== "") labels.country = peer.country;
+						if (peer.ip && peer.ip !== "") labels.ip = peer.ip;
+						if (peer.port) labels.port = peer.port?.toString();
+
+						if (Object.keys(labels).length === 0) continue;
+
 						peer_dl_bytes.inc(labels, peer.downloaded);
 						peer_up_bytes.inc(labels, peer.uploaded);
 						peer_dl_speed.inc(labels, peer.dl_speed);
 						peer_up_speed.inc(labels, peer.up_speed);
-						peer_percent_complete.inc(labels, peer.progress);
 					}
 				}
 				for (const [key, metric] of metrics) {
