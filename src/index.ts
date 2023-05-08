@@ -72,7 +72,7 @@ type Peers = {
 	};
 };
 
-const labelNames = ["country", "client", "ip", "port"] as const;
+const labelNames = ["country", "client", "ip", "port", "torrentName"] as const;
 const peerPrefix = `peer_`;
 const peer_dl_speed = new Gauge({
 	name: `${prefix}${peerPrefix}downSpeed`,
@@ -107,7 +107,7 @@ createServer(async (req, res) => {
 				if (torrent.num_leechs + torrent.num_seeds > 0) {
 					const { peers } = await client.torrentPeers(torrent.hash);
 					for (const peer of Object.values(peers)) {
-						const labels: { country?: string; client?: string; ip?: string; port?: string } = {};
+						const labels: Partial<Record<typeof labelNames[number], string>> = { torrentName: torrent.name };
 						if (peer.client && peer.client !== "") labels.client = peer.client?.toString();
 						if (peer.country && peer.country !== "") labels.country = peer.country;
 						if (peer.ip && peer.ip !== "") labels.ip = peer.ip;
